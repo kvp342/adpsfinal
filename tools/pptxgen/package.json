@@ -1,0 +1,10 @@
+{
+  "name": "apds-pptxgen",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}
+
