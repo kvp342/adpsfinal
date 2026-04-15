@@ -2,9 +2,39 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Bar, Line, Pie } from 'react-chartjs-2';
 
-const apiBaseUrl = (import.meta?.env?.VITE_API_BASE && String(import.meta.env.VITE_API_BASE).trim())
-  ? String(import.meta.env.VITE_API_BASE).trim()
-  : `http://${window.location.hostname}:8080/api`;
+const normalizeApiBase = (raw) => {
+  const value = raw == null ? '' : String(raw).trim();
+  if (!value) return '';
+  const noTrailingSlash = value.endsWith('/') ? value.slice(0, -1) : value;
+  if (noTrailingSlash.endsWith('/api')) return noTrailingSlash;
+  if (noTrailingSlash.startsWith('http://') || noTrailingSlash.startsWith('https://')) return `${noTrailingSlash}/api`;
+  return '';
+};
+
+const getApiBaseUrl = () => {
+  const fromEnv = normalizeApiBase(import.meta?.env?.VITE_API_BASE);
+  if (fromEnv) return fromEnv;
+
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = normalizeApiBase(params.get('apiBase') || params.get('api'));
+  if (fromQuery) {
+    try {
+      window.localStorage.setItem('APDS_API_BASE', fromQuery);
+    } catch {
+    }
+    return fromQuery;
+  }
+
+  try {
+    const fromStorage = normalizeApiBase(window.localStorage.getItem('APDS_API_BASE'));
+    if (fromStorage) return fromStorage;
+  } catch {
+  }
+
+  return `http://${window.location.hostname}:8080/api`;
+};
+
+const apiBaseUrl = getApiBaseUrl();
 
 const api = axios.create({
   baseURL: apiBaseUrl,
