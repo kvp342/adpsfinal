@@ -43,12 +43,6 @@ public class DetectionService {
     private static final Pattern COMMAND_INJECTION_PATTERN = Pattern.compile("(?i)(\\$\\(|`|\\b(cmd\\.exe|powershell|bash|sh)\\b|\\b(cat|ls|whoami|id|uname)\\b|[;&|]{1,2}\\s*\\w+)");
     private static final Pattern SSRF_PATTERN = Pattern.compile("(?i)(https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)\\b|169\\.254\\.169\\.254\\b|file://|gopher://|ftp://)");
     private static final Pattern LFI_PATTERN = Pattern.compile("(?i)(/etc/passwd\\b|/proc/self/environ\\b|windows/win\\.ini\\b|php://filter\\b)");
-    private static final Pattern OPEN_REDIRECT_PATTERN = Pattern.compile("(?i)(\\b(next|redirect|url|return|continue)\\s*=\\s*(https?:)?//)");
-    private static final Pattern NOSQLI_PATTERN = Pattern.compile("(?i)(\\$ne\\b|\\$gt\\b|\\$gte\\b|\\$lt\\b|\\$lte\\b|\\$in\\b|\\$nin\\b|\\$regex\\b|\\$where\\b|\\[\\$ne\\]|\\{\\s*\\$ne\\s*:\\s*|\\{\\s*\\$gt\\s*:\\s*)");
-    private static final Pattern LDAP_INJECTION_PATTERN = Pattern.compile("(?i)(\\*\\)\\(|\\)\\(|\\(\\|\\(|\\)\\(\\||\\(\\&\\(|\\)\\(\\&|\\(uid=\\*\\)|\\(cn=\\*\\)|\\(objectclass=\\*\\))");
-    private static final Pattern CRLF_INJECTION_PATTERN = Pattern.compile("(?i)(%0d%0a|%0a%0d|\\r\\n)");
-    private static final Pattern SSTI_PATTERN = Pattern.compile("(?i)(\\{\\{\\s*\\d+\\s*[*+\\-\\/]\\s*\\d+\\s*\\}\\}|\\$\\{\\s*\\d+\\s*[*+\\-\\/]\\s*\\d+\\s*\\}|<%=?\\s*[^%]+\\s*%>)");
-    private static final Pattern RFI_PATTERN = Pattern.compile("(?i)(\\b(file|page|path|template|include|load)\\s*=\\s*https?://[^\\s&]+)");
 
     private final Map<String, StrikeState> strikeStates = new ConcurrentHashMap<>();
 
@@ -161,40 +155,6 @@ public class DetectionService {
                     attackType = "LFI";
                     reasons.add("Local file inclusion signature (simulated)");
                     break;
-                case "OPEN_REDIRECT":
-                    riskScore += 30;
-                    attackType = "OPEN_REDIRECT";
-                    reasons.add("Open redirect pattern (simulated)");
-                    break;
-                case "NOSQLI":
-                case "NOSQL_INJECTION":
-                    riskScore += 65;
-                    attackType = "NOSQL_INJECTION";
-                    reasons.add("NoSQL injection signature (simulated)");
-                    break;
-                case "LDAP_INJECTION":
-                    riskScore += 60;
-                    attackType = "LDAP_INJECTION";
-                    reasons.add("LDAP injection signature (simulated)");
-                    break;
-                case "CRLF":
-                case "CRLF_INJECTION":
-                    riskScore += 40;
-                    attackType = "CRLF_INJECTION";
-                    reasons.add("CRLF injection signature (simulated)");
-                    break;
-                case "SSTI":
-                case "TEMPLATE_INJECTION":
-                    riskScore += 70;
-                    attackType = "SSTI";
-                    reasons.add("Template injection signature (simulated)");
-                    break;
-                case "RFI":
-                case "REMOTE_FILE_INCLUSION":
-                    riskScore += 80;
-                    attackType = "RFI";
-                    reasons.add("Remote file inclusion signature (simulated)");
-                    break;
                 default:
                     riskScore += 20;
                     attackType = t;
@@ -256,36 +216,6 @@ public class DetectionService {
             riskScore += 75;
             reasons.add("Local file inclusion signature");
             if ("NONE".equals(attackType) || "PROBING".equals(attackType) || "PATH_TRAVERSAL".equals(attackType)) attackType = "LFI";
-        }
-        if (OPEN_REDIRECT_PATTERN.matcher(decoded).find()) {
-            riskScore += 30;
-            reasons.add("Open redirect signature");
-            if ("NONE".equals(attackType) || "PROBING".equals(attackType)) attackType = "OPEN_REDIRECT";
-        }
-        if (CRLF_INJECTION_PATTERN.matcher(decoded).find()) {
-            riskScore += 40;
-            reasons.add("CRLF injection signature");
-            if ("NONE".equals(attackType) || "PROBING".equals(attackType) || "OPEN_REDIRECT".equals(attackType)) attackType = "CRLF_INJECTION";
-        }
-        if (NOSQLI_PATTERN.matcher(decoded).find()) {
-            riskScore += 70;
-            reasons.add("NoSQL injection signature");
-            attackType = "NOSQL_INJECTION";
-        }
-        if (LDAP_INJECTION_PATTERN.matcher(decoded).find()) {
-            riskScore += 65;
-            reasons.add("LDAP injection signature");
-            if (!"NOSQL_INJECTION".equals(attackType) && !"SQL_INJECTION".equals(attackType) && !"COMMAND_INJECTION".equals(attackType)) attackType = "LDAP_INJECTION";
-        }
-        if (SSTI_PATTERN.matcher(decoded).find()) {
-            riskScore += 70;
-            reasons.add("Template injection signature");
-            if (!"SQL_INJECTION".equals(attackType) && !"COMMAND_INJECTION".equals(attackType) && !"NOSQL_INJECTION".equals(attackType)) attackType = "SSTI";
-        }
-        if (RFI_PATTERN.matcher(decoded).find()) {
-            riskScore += 80;
-            reasons.add("Remote file inclusion signature");
-            if (!"SSRF".equals(attackType) && !"COMMAND_INJECTION".equals(attackType)) attackType = "RFI";
         }
         if (decoded.contains("/wp-admin") || decoded.contains("wp-login") || decoded.contains("/admin") || decoded.contains("/.env")) {
             riskScore += 20;

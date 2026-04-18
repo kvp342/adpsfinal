@@ -76,7 +76,7 @@ const buildDemoDataset = () => {
     mk(7, '172.31.30.2', 'GET', '/ping?host=8.8.8.8;cat%20/etc/passwd', 'COMMAND_INJECTION', 98, 'BLOCKED', 'Command injection signature', 0.94),
     mk(8, '172.31.40.9', 'GET', '/fetch?url=http://169.254.169.254/latest/meta-data/', 'SSRF', 92, 'BLOCKED', 'SSRF signature', 0.88),
     mk(9, '172.31.50.6', 'GET', '/index.php?page=php://filter/convert.base64-encode/resource=/etc/passwd', 'LFI', 88, 'BLOCKED', 'Local file inclusion signature', 0.86),
-    mk(10, '172.31.60.1', 'GET', '/redirect?next=https://evil.example', 'OPEN_REDIRECT', 35, 'SUSPICIOUS', 'Open redirect signature', 0.41),
+    mk(10, '203.0.113.12', 'GET', '/probe?port=22', 'PORT_SCAN', 55, 'SUSPICIOUS', 'Port-scan pattern (simulated)', 0.58),
   ];
 
   const breakdown = demoLogs.reduce((acc, l) => {
@@ -338,36 +338,6 @@ const Dashboard = () => {
   const simulateLfi = async () => {
     const ip = `172.31.50.${Math.floor(Math.random() * 10) + 1}`;
     await postLog({ ip, method: 'GET', path: '/index.php?page=php://filter/convert.base64-encode/resource=/etc/passwd', attackType: 'LFI' });
-  };
-
-  const simulateOpenRedirect = async () => {
-    const ip = `172.31.60.${Math.floor(Math.random() * 10) + 1}`;
-    await postLog({ ip, method: 'GET', path: '/redirect?next=https://evil.example', attackType: 'OPEN_REDIRECT' });
-  };
-
-  const simulateNoSqlInjection = async () => {
-    const ip = `172.20.10.${Math.floor(Math.random() * 10) + 1}`;
-    await postLog({ ip, method: 'GET', path: '/api/users?username[$ne]=&password[$ne]=', attackType: 'NOSQL_INJECTION' });
-  };
-
-  const simulateLdapInjection = async () => {
-    const ip = `172.20.11.${Math.floor(Math.random() * 10) + 1}`;
-    await postLog({ ip, method: 'GET', path: '/ldap?filter=*)(|(uid=*))', attackType: 'LDAP_INJECTION' });
-  };
-
-  const simulateCrlfInjection = async () => {
-    const ip = `172.20.12.${Math.floor(Math.random() * 10) + 1}`;
-    await postLog({ ip, method: 'GET', path: '/redirect?next=https://good.example%0d%0aSet-Cookie:%20pwned=1', attackType: 'CRLF_INJECTION' });
-  };
-
-  const simulateSsti = async () => {
-    const ip = `172.20.13.${Math.floor(Math.random() * 10) + 1}`;
-    await postLog({ ip, method: 'GET', path: '/welcome?name={{7*7}}', attackType: 'SSTI' });
-  };
-
-  const simulateRfi = async () => {
-    const ip = `172.20.14.${Math.floor(Math.random() * 10) + 1}`;
-    await postLog({ ip, method: 'GET', path: '/page?template=https://evil.example/shell.txt', attackType: 'RFI' });
   };
 
   const simulatePortScan = async () => {
@@ -708,24 +678,6 @@ const Dashboard = () => {
           </button>
           <button className="apds-btn" onClick={simulateLfi} style={{ padding: '10px 16px', backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
             Simulate LFI
-          </button>
-          <button className="apds-btn" onClick={simulateOpenRedirect} style={{ padding: '10px 16px', backgroundColor: '#546E7A', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
-            Simulate Open Redirect
-          </button>
-          <button className="apds-btn" onClick={simulateNoSqlInjection} style={{ padding: '10px 16px', backgroundColor: '#00897B', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
-            Simulate NoSQLi
-          </button>
-          <button className="apds-btn" onClick={simulateLdapInjection} style={{ padding: '10px 16px', backgroundColor: '#8E24AA', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
-            Simulate LDAPi
-          </button>
-          <button className="apds-btn" onClick={simulateCrlfInjection} style={{ padding: '10px 16px', backgroundColor: '#C0CA33', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
-            Simulate CRLF
-          </button>
-          <button className="apds-btn" onClick={simulateSsti} style={{ padding: '10px 16px', backgroundColor: '#3949AB', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
-            Simulate SSTI
-          </button>
-          <button className="apds-btn" onClick={simulateRfi} style={{ padding: '10px 16px', backgroundColor: '#D84315', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
-            Simulate RFI
           </button>
           <button className="apds-btn" onClick={simulatePortScan} style={{ padding: '10px 16px', backgroundColor: '#283593', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
             Simulate Port Scan
